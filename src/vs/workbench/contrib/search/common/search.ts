@@ -128,6 +128,7 @@ export interface IWorkbenchSearchConfigurationProperties extends ISearchConfigur
 		history?: {
 			filterSortOrder?: 'default' | 'recency';
 		};
+		proximityBoost?: number;
 	};
 }
 

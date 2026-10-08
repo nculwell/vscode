@@ -14,7 +14,7 @@ import { basename, ExtUri, joinPath } from '../../../../base/common/resources.js
 import { URI } from '../../../../base/common/uri.js';
 import { FileSystemProviderCapabilities, FileType, IFileService } from '../../../../platform/files/common/files.js';
 import { IgnoreFile } from '../../search/common/ignoreFile.js';
-import { createProximityComparer } from '../../search/common/pathProximity.js';
+import { createProximityRanking } from '../../search/common/pathProximity.js';
 import { IFileQuery, IFolderQuery, ISearchComplete, ISearchResultProvider, ITextQuery, isFilePatternMatch, QueryGlobTester } from '../../search/common/search.js';
 
 interface IFileSearchCache extends IDisposable {
@@ -80,14 +80,14 @@ export class AgentHostFileSearchProvider extends Disposable implements ISearchRe
 		if (query.sortByScore && query.filePattern && !query.shouldGlobMatchFilePattern) {
 			const prepared = prepareQuery(query.filePattern);
 			const scorerCache: FuzzyScorerCache = Object.create(null);
-			const tieBreaker = query.proximityFolder
-				? createProximityComparer(new ExtUri(uri => !this.fileService.hasCapability(uri, FileSystemProviderCapabilities.PathCaseSensitive)), query.proximityFolder, (item: { resource: URI }) => item.resource)
+			const proximityRanking = query.proximityFolder
+				? createProximityRanking(new ExtUri(uri => !this.fileService.hasCapability(uri, FileSystemProviderCapabilities.PathCaseSensitive)), query.proximityFolder, (item: { resource: URI }) => item.resource, query.proximityBoost)
 				: undefined;
 			matches.sort((a, b) => compareItemsByFuzzyScore(a, b, prepared, true, {
 				getItemLabel: item => basename(item.resource),
 				getItemDescription: item => item.relativePath,
 				getItemPath: item => item.relativePath,
-			}, scorerCache, tieBreaker));
+			}, scorerCache, proximityRanking));
 		}
 		const limit = query.exists ? 0 : query.maxResults || matches.length;
 		return {

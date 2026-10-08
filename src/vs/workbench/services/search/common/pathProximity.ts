@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { ICompareItemsByFuzzyScoreOptions } from '../../../../base/common/fuzzyScorer.js';
 import { IExtUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 
@@ -40,11 +41,17 @@ function getFolderDepth(folder: URI): number {
 }
 
 /**
- * Creates a comparer that orders items by how close their resource is to `folder`,
- * closest first. Items without a resource, or whose resource is not related to
- * `folder`, sort last. Distances are cached per item for the lifetime of the comparer.
+ * Creates options for {@link compareItemsByFuzzyScore} that rank items by how close
+ * their resource is to `folder`:
+ * - as a tie breaker, closer items come first among otherwise equally good matches
+ * - if `boost` is greater than 0, items receive `boost` extra score points when in
+ *   `folder`, halving with every folder step away from it
+ *
+ * Items without a resource, or whose resource is not related to `folder`, are
+ * considered farthest away. Distances are cached per item for the lifetime of the
+ * returned options.
  */
-export function createProximityComparer<T>(extUri: IExtUri, folder: URI, getResource: (item: T) => URI | undefined): (itemA: T, itemB: T) => number {
+export function createProximityRanking<T>(extUri: IExtUri, folder: URI, getResource: (item: T) => URI | undefined, boost = 0): ICompareItemsByFuzzyScoreOptions<T> {
 	const distances = new Map<T, number>();
 
 	const getDistance = (item: T): number => {
@@ -58,13 +65,16 @@ export function createProximityComparer<T>(extUri: IExtUri, folder: URI, getReso
 		return distance;
 	};
 
-	return (itemA, itemB) => {
-		const distanceA = getDistance(itemA);
-		const distanceB = getDistance(itemB);
-		if (distanceA === distanceB) {
-			return 0; // also covers both being infinite, where subtraction would yield NaN
-		}
+	return {
+		tieBreaker: (itemA, itemB) => {
+			const distanceA = getDistance(itemA);
+			const distanceB = getDistance(itemB);
+			if (distanceA === distanceB) {
+				return 0; // also covers both being infinite, where subtraction would yield NaN
+			}
 
-		return distanceA < distanceB ? -1 : 1;
+			return distanceA < distanceB ? -1 : 1;
+		},
+		scoreBoost: boost > 0 ? item => boost / Math.pow(2, getDistance(item)) : undefined
 	};
 }

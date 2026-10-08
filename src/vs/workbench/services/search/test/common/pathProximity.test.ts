@@ -7,7 +7,7 @@ import assert from 'assert';
 import { extUri, extUriIgnorePathCase } from '../../../../../base/common/resources.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { createProximityComparer, getFolderDistance } from '../../common/pathProximity.js';
+import { createProximityRanking, getFolderDistance } from '../../common/pathProximity.js';
 
 suite('pathProximity', () => {
 
@@ -53,8 +53,8 @@ suite('pathProximity', () => {
 		});
 	});
 
-	test('createProximityComparer', function () {
-		const compare = createProximityComparer(extUri, URI.file('/repo/src/app'), (resource: URI | undefined) => resource);
+	test('createProximityRanking - tie breaker', function () {
+		const compare = createProximityRanking(extUri, URI.file('/repo/src/app'), (resource: URI | undefined) => resource).tieBreaker!;
 		const resources = [
 			undefined,
 			URI.file('/elsewhere/deep/folder/index.ts'),
@@ -74,15 +74,30 @@ suite('pathProximity', () => {
 		]);
 	});
 
-	test('createProximityComparer - resolves each item once', function () {
+	test('createProximityRanking - score boost', function () {
+		const resources = ['/repo/src/app/index.ts', '/repo/src/index.ts', '/repo/test/index.ts', '/elsewhere/a/b/c/index.ts'].map(path => URI.file(path));
+		const boost = (value?: number) => createProximityRanking(extUri, URI.file('/repo/src/app'), (resource: URI) => resource, value).scoreBoost;
+
+		assert.deepStrictEqual({
+			default: boost(),
+			zero: boost(0),
+			boosts: resources.map(boost(64)!),
+		}, {
+			default: undefined,
+			zero: undefined,
+			boosts: [64, 32, 8, 0.5], // distances 0, 1, 3 and 7
+		});
+	});
+
+	test('createProximityRanking - resolves each item once', function () {
 		const resolved: string[] = [];
-		const compare = createProximityComparer(extUri, URI.file('/repo'), (relativePath: string) => {
+		const ranking = createProximityRanking(extUri, URI.file('/repo'), (relativePath: string) => {
 			resolved.push(relativePath);
 			return URI.file(`/repo/${relativePath}`);
-		});
+		}, 8);
 
-		const sorted = ['a/b/c/file.ts', 'a/file.ts', 'file.ts', 'a/b/file.ts'].sort(compare);
-		sorted.sort(compare);
+		const sorted = ['a/b/c/file.ts', 'a/file.ts', 'file.ts', 'a/b/file.ts'].sort(ranking.tieBreaker);
+		sorted.forEach(ranking.scoreBoost!);
 
 		assert.deepStrictEqual({ sorted, resolved: resolved.sort() }, {
 			sorted: ['file.ts', 'a/file.ts', 'a/b/file.ts', 'a/b/c/file.ts'],

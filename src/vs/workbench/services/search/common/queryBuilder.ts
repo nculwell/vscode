@@ -87,6 +87,7 @@ export interface IFileQueryBuilderOptions<U extends UriComponents = URI> extends
 	exists?: boolean;
 	sortByScore?: boolean;
 	proximityFolder?: U;
+	proximityBoost?: number;
 	cacheKey?: string;
 	shouldGlobSearch?: boolean;
 }
@@ -206,6 +207,7 @@ export class QueryBuilder {
 			exists: options.exists,
 			sortByScore: options.sortByScore,
 			proximityFolder: options.proximityFolder,
+			proximityBoost: options.proximityBoost,
 			cacheKey: options.cacheKey,
 			shouldGlobMatchFilePattern: options.shouldGlobSearch
 		};

@@ -17,7 +17,7 @@ import { StopWatch } from '../../../../base/common/stopwatch.js';
 import { URI, UriComponents } from '../../../../base/common/uri.js';
 import { ByteSize } from '../../../../platform/files/common/files.js';
 import { DEFAULT_MAX_SEARCH_RESULTS, ICachedSearchStats, IFileQuery, IFileSearchProgressItem, IFileSearchStats, IFolderQuery, IProgressMessage, IRawFileMatch, IRawFileQuery, IRawQuery, IRawSearchService, IRawTextQuery, ISearchEngine, ISearchEngineSuccess, ISerializedFileMatch, ISerializedSearchComplete, ISerializedSearchProgressItem, ISerializedSearchSuccess, isFilePatternMatch, ITextQuery, QueryType } from '../common/search.js';
-import { createProximityComparer } from '../common/pathProximity.js';
+import { createProximityRanking } from '../common/pathProximity.js';
 import { Engine as FileSearchEngine } from './fileSearch.js';
 import { TextSearchEngineAdapter } from './textSearchAdapter.js';
 
@@ -262,10 +262,10 @@ export class SearchService implements IRawSearchService {
 		// and as such we want the top items to be included in this result set if the number of items
 		// exceeds config.maxResults.
 		const query = prepareQuery(config.filePattern || '');
-		const tieBreaker = config.proximityFolder
-			? createProximityComparer(isLinux ? extUri : extUriIgnorePathCase, config.proximityFolder, (match: IRawFileMatch) => match.base ? URI.file(join(match.base, match.relativePath)) : undefined)
+		const proximityRanking = config.proximityFolder
+			? createProximityRanking(isLinux ? extUri : extUriIgnorePathCase, config.proximityFolder, (match: IRawFileMatch) => match.base ? URI.file(join(match.base, match.relativePath)) : undefined, config.proximityBoost)
 			: undefined;
-		const compare = (matchA: IRawFileMatch, matchB: IRawFileMatch) => compareItemsByFuzzyScore(matchA, matchB, query, true, FileMatchItemAccessor, scorerCache, tieBreaker);
+		const compare = (matchA: IRawFileMatch, matchB: IRawFileMatch) => compareItemsByFuzzyScore(matchA, matchB, query, true, FileMatchItemAccessor, scorerCache, proximityRanking);
 
 		const maxResults = typeof config.maxResults === 'number' ? config.maxResults : DEFAULT_MAX_SEARCH_RESULTS;
 		return arrays.topAsync(results, compare, maxResults, 10000, token);

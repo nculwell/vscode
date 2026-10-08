@@ -117,6 +117,21 @@ suite('AgentHostFileSearchProvider', () => {
 		});
 	});
 
+	test('applies the proximity boost before limiting results', async () => {
+		const { search, query } = await setup({ 'a/foo.ts': '', 'b/c/foobar.ts': '' });
+		const sortedQuery: IFileQuery = { ...query, filePattern: 'foo', sortByScore: true, maxResults: 1, proximityFolder: joinPath(root, 'b/c') };
+		const withoutBoost = await search.fileSearch(sortedQuery);
+		const withBoost = await search.fileSearch({ ...sortedQuery, proximityBoost: 100 });
+
+		assert.deepStrictEqual({
+			withoutBoost: withoutBoost.results.map(match => match.resource.path.slice(root.path.length + 1)),
+			withBoost: withBoost.results.map(match => match.resource.path.slice(root.path.length + 1)),
+		}, {
+			withoutBoost: ['a/foo.ts'],
+			withBoost: ['b/c/foobar.ts'],
+		});
+	});
+
 	test('reuses the Quick Open cache across filename queries and clears it explicitly', async () => {
 		let listings = 0;
 		const provider = disposables.add(new class extends InMemoryFileSystemProvider {

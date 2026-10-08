@@ -6,7 +6,7 @@
 import './media/anythingQuickAccess.css';
 import { IQuickInputButton, IKeyMods, quickPickItemScorerAccessor, QuickPickItemScorerAccessor, IQuickPick, IQuickPickItemWithResource, QuickInputHideReason, IQuickInputService, IQuickPickSeparator } from '../../../../platform/quickinput/common/quickInput.js';
 import { IPickerQuickAccessItem, PickerQuickAccessProvider, TriggerAction, FastAndSlowPicks, Picks, PicksWithActive } from '../../../../platform/quickinput/browser/pickerQuickAccess.js';
-import { prepareQuery, IPreparedQuery, compareItemsByFuzzyScore, scoreItemFuzzy, FuzzyScorerCache } from '../../../../base/common/fuzzyScorer.js';
+import { prepareQuery, IPreparedQuery, compareItemsByFuzzyScore, scoreItemFuzzy, FuzzyScorerCache, ICompareItemsByFuzzyScoreOptions } from '../../../../base/common/fuzzyScorer.js';
 import { IFileQueryBuilderOptions, QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { getOutOfWorkspaceEditorResources, extractRangeFromFilter, stripLeadingCurrentDirectory, IWorkbenchSearchConfiguration } from '../common/search.js';
@@ -34,7 +34,7 @@ import { IRange } from '../../../../editor/common/core/range.js';
 import { ThrottledDelayer } from '../../../../base/common/async.js';
 import { top } from '../../../../base/common/arrays.js';
 import { FileQueryCacheState } from '../common/cacheState.js';
-import { createProximityComparer } from '../../../services/search/common/pathProximity.js';
+import { createProximityRanking } from '../../../services/search/common/pathProximity.js';
 import { IHistoryService } from '../../../services/history/common/history.js';
 import { IResourceEditorInput, ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { Schemas } from '../../../../base/common/network.js';
@@ -231,6 +231,7 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 			includeSymbols: searchConfig?.quickOpen?.includeSymbols,
 			includeHistory: searchConfig?.quickOpen?.includeHistory ?? true,
 			historyFilterSortOrder: searchConfig?.quickOpen?.history?.filterSortOrder,
+			proximityBoost: searchConfig?.quickOpen?.proximityBoost ?? 0,
 			preserveInput: quickAccessConfig?.preserveInput
 		};
 	}
@@ -478,10 +479,10 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		}
 
 		// Perform sorting (top results by score)
-		const proximityTieBreaker = this.createProximityTieBreaker();
+		const proximityRanking = this.createProximityRanking();
 		const sortedAnythingPicks = top(
 			[...filePicks, ...symbolPicks],
-			(anyPickA, anyPickB) => compareItemsByFuzzyScore(anyPickA, anyPickB, query, true, quickPickItemScorerAccessor, this.pickState.scorerCache, proximityTieBreaker),
+			(anyPickA, anyPickB) => compareItemsByFuzzyScore(anyPickA, anyPickB, query, true, quickPickItemScorerAccessor, this.pickState.scorerCache, proximityRanking),
 			AnythingQuickAccessProvider.MAX_RESULTS
 		);
 
@@ -560,21 +561,21 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		}
 
 		// Perform sorting
-		const proximityTieBreaker = this.createProximityTieBreaker();
-		return editorHistoryPicks.sort((editorA, editorB) => compareItemsByFuzzyScore(editorA, editorB, query, false, editorHistoryScorerAccessor, this.pickState.scorerCache, proximityTieBreaker));
+		const proximityRanking = this.createProximityRanking();
+		return editorHistoryPicks.sort((editorA, editorB) => compareItemsByFuzzyScore(editorA, editorB, query, false, editorHistoryScorerAccessor, this.pickState.scorerCache, proximityRanking));
 	}
 
 	/**
-	 * Returns a comparer that prefers picks closer to the editor that was active
-	 * when the picker opened, for use when picks are otherwise equally good matches.
+	 * Returns sorting options that prefer picks closer to the editor that was
+	 * active when the picker opened.
 	 */
-	private createProximityTieBreaker(): ((pickA: IAnythingQuickPickItem, pickB: IAnythingQuickPickItem) => number) | undefined {
+	private createProximityRanking(): ICompareItemsByFuzzyScoreOptions<IAnythingQuickPickItem> | undefined {
 		const activeResource = this.pickState.activeResource;
 		if (!activeResource) {
 			return undefined;
 		}
 
-		return createProximityComparer(this.uriIdentityService.extUri, dirname(activeResource), (pick: IAnythingQuickPickItem) => pick.resource);
+		return createProximityRanking(this.uriIdentityService.extUri, dirname(activeResource), (pick: IAnythingQuickPickItem) => pick.resource, this.configuration.proximityBoost);
 	}
 
 	//#endregion
@@ -742,14 +743,15 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 					filePattern,
 					cacheKey: this.pickState.fileQueryCache?.cacheKey,
 					maxResults: AnythingQuickAccessProvider.MAX_RESULTS,
-					proximityFolder: this.pickState.activeResource ? dirname(this.pickState.activeResource) : undefined
+					proximityFolder: this.pickState.activeResource ? dirname(this.pickState.activeResource) : undefined,
+					proximityBoost: this.configuration.proximityBoost
 				})
 			), token).finally(() => {
 				this.logService.trace(`QuickAccess fileSearch ${Date.now() - start}ms`);
 			});
 	}
 
-	private getFileQueryOptions(input: { filePattern?: string; cacheKey?: string; maxResults?: number; proximityFolder?: URI }): IFileQueryBuilderOptions {
+	private getFileQueryOptions(input: { filePattern?: string; cacheKey?: string; maxResults?: number; proximityFolder?: URI; proximityBoost?: number }): IFileQueryBuilderOptions {
 		return {
 			_reason: 'openFileHandler', // used for telemetry - do not change
 			extraFileResources: this.instantiationService.invokeFunction(getOutOfWorkspaceEditorResources),
@@ -757,7 +759,8 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 			cacheKey: input.cacheKey,
 			maxResults: input.maxResults || 0,
 			sortByScore: true,
-			proximityFolder: input.proximityFolder
+			proximityFolder: input.proximityFolder,
+			proximityBoost: input.proximityBoost
 		};
 	}
 

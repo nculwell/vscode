@@ -746,7 +746,7 @@ suite('Fuzzy Scorer', () => {
 		const tieBreaker = (r1: URI, r2: URI) => rank(r1) - rank(r2);
 
 		const sort = (useTieBreaker: boolean) => [resourceB, resourceC, resourceA]
-			.sort((r1, r2) => compareItemsByFuzzyScore(r1, r2, prepareQuery('foo'), true, ResourceAccessor, Object.create(null), useTieBreaker ? tieBreaker : undefined))
+			.sort((r1, r2) => compareItemsByFuzzyScore(r1, r2, prepareQuery('foo'), true, ResourceAccessor, Object.create(null), useTieBreaker ? { tieBreaker } : undefined))
 			.map(resource => resource.path);
 
 		assert.deepStrictEqual({ withoutTieBreaker: sort(false), withTieBreaker: sort(true) }, {
@@ -754,6 +754,33 @@ suite('Fuzzy Scorer', () => {
 			withoutTieBreaker: [resourceB.path, resourceA.path, resourceC.path],
 			// tie breaker decides between the equal scores, but cannot promote "foobar.ts"
 			withTieBreaker: [resourceA.path, resourceB.path, resourceC.path]
+		});
+	});
+
+	test('compareFilesByScore - score boost reorders within a scoring band only', function () {
+		const prefixShort = URI.file('/some/foo.ts');				// label prefix match, best
+		const prefixLong = URI.file('/some/foobar.ts');			// label prefix match, weaker
+		const labelMatch = URI.file('/some/xfoo.ts');				// label match without prefix
+		const pathMatch = URI.file('/some/foo/index.ts');			// match on path only
+		const backup = URI.file('/some/foo/index.ts.bak');			// match on path only, longer name
+
+		const sort = (query: string, boosts: Map<URI, number>) => [backup, pathMatch, labelMatch, prefixLong, prefixShort]
+			.sort((r1, r2) => compareItemsByFuzzyScore(r1, r2, prepareQuery(query), true, ResourceAccessor, Object.create(null), { scoreBoost: resource => boosts.get(resource) ?? 0 }))
+			.map(resource => basename(resource.fsPath));
+
+		assert.deepStrictEqual({
+			noBoost: sort('foo', new Map()),
+			// a small boost is enough to reorder matches of the same kind
+			boostWeakerPrefix: sort('foo', new Map([[prefixLong, 100]])),
+			// a huge boost never lifts an item into a better kind of match
+			boostHuge: sort('foo', new Map([[labelMatch, 1e9], [pathMatch, 1e9]])),
+			// nothing overtakes an identity match
+			boostAgainstIdentity: sort(pathMatch.fsPath, new Map([[backup, 1e9]])).slice(0, 2),
+		}, {
+			noBoost: ['foo.ts', 'foobar.ts', 'xfoo.ts', 'index.ts', 'index.ts.bak'],
+			boostWeakerPrefix: ['foobar.ts', 'foo.ts', 'xfoo.ts', 'index.ts', 'index.ts.bak'],
+			boostHuge: ['foo.ts', 'foobar.ts', 'xfoo.ts', 'index.ts', 'index.ts.bak'],
+			boostAgainstIdentity: ['index.ts', 'index.ts.bak'],
 		});
 	});
 

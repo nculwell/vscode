@@ -298,6 +298,44 @@ flakySuite('RawSearchService', () => {
 		});
 	});
 
+	test('Sorted results apply the proximity boost before limiting', async function () {
+		const search = async (proximityBoost: number | undefined) => {
+			const matches: IRawFileMatch[] = ['a/foo.ts', 'b/c/foobar.ts'].map(relativePath => ({
+				base: path.normalize('/some/where'),
+				relativePath: path.normalize(relativePath),
+				searchPath: undefined
+			}));
+			const Engine = TestSearchEngine.bind(null, () => matches.shift()!);
+			const service = new RawSearchService();
+
+			const results: string[] = [];
+			const cb: IProgressCallback = value => {
+				if (Array.isArray(value)) {
+					results.push(...value.map(v => v.path));
+				}
+			};
+
+			await service.doFileSearchWithEngine(Engine, {
+				type: QueryType.File,
+				folderQueries: TEST_FOLDER_QUERIES,
+				filePattern: 'foo',
+				sortByScore: true,
+				proximityFolder: URI.file(path.normalize('/some/where/b/c')),
+				proximityBoost,
+				maxResults: 1
+			}, cb, undefined, 1);
+
+			return results;
+		};
+
+		assert.deepStrictEqual({ withoutBoost: await search(undefined), withBoost: await search(100) }, {
+			// "foo.ts" is the better match, proximity alone does not change that
+			withoutBoost: [path.normalize('/some/where/a/foo.ts')],
+			// with a boost, the slightly weaker match next to the active editor wins
+			withBoost: [path.normalize('/some/where/b/c/foobar.ts')]
+		});
+	});
+
 	test('Revives the proximity folder of a serialized query', async function () {
 		const testDir = getRandomTestPath(tmpdir(), 'vsctests', 'rawsearchproximity');
 		try {

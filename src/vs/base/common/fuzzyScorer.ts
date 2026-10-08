@@ -645,17 +645,29 @@ function matchOverlaps(matchA: IMatch, matchB: IMatch): boolean {
 
 //#region Comparers
 
-/**
- * @param tieBreaker optional comparer that is consulted when two items have identical
- * scores and equally compact matches, before falling back to comparing by length and
- * alphabetically.
- */
-export function compareItemsByFuzzyScore<T>(itemA: T, itemB: T, query: IPreparedQuery, allowNonContiguousMatches: boolean, accessor: IItemAccessor<T>, cache: FuzzyScorerCache, tieBreaker?: (itemA: T, itemB: T) => number): number {
+export interface ICompareItemsByFuzzyScoreOptions<T> {
+
+	/**
+	 * Comparer that is consulted when two items have identical scores and equally
+	 * compact matches, before falling back to comparing by length and alphabetically.
+	 */
+	tieBreaker?: (itemA: T, itemB: T) => number;
+
+	/**
+	 * Extra points to add to the score of an item. The boost never lifts an item
+	 * into a higher scoring band: a match on the path never overtakes a match on
+	 * the label, a match on the label never overtakes a prefix match on the label,
+	 * and nothing overtakes an identity match.
+	 */
+	scoreBoost?: (item: T) => number;
+}
+
+export function compareItemsByFuzzyScore<T>(itemA: T, itemB: T, query: IPreparedQuery, allowNonContiguousMatches: boolean, accessor: IItemAccessor<T>, cache: FuzzyScorerCache, options?: ICompareItemsByFuzzyScoreOptions<T>): number {
 	const itemScoreA = scoreItemFuzzy(itemA, query, allowNonContiguousMatches, accessor, cache);
 	const itemScoreB = scoreItemFuzzy(itemB, query, allowNonContiguousMatches, accessor, cache);
 
-	const scoreA = itemScoreA.score;
-	const scoreB = itemScoreB.score;
+	const scoreA = options?.scoreBoost ? boostScore(itemScoreA.score, options.scoreBoost(itemA)) : itemScoreA.score;
+	const scoreB = options?.scoreBoost ? boostScore(itemScoreB.score, options.scoreBoost(itemB)) : itemScoreB.score;
 
 	// 1.) identity matches have highest score
 	if (scoreA === PATH_IDENTITY_SCORE || scoreB === PATH_IDENTITY_SCORE) {
@@ -709,8 +721,8 @@ export function compareItemsByFuzzyScore<T>(itemA: T, itemB: T, query: IPrepared
 	}
 
 	// 6.) scores are identical: use the tie breaker if provided
-	if (tieBreaker) {
-		const comparedByTieBreaker = tieBreaker(itemA, itemB);
+	if (options?.tieBreaker) {
+		const comparedByTieBreaker = options.tieBreaker(itemA, itemB);
 		if (comparedByTieBreaker !== 0) {
 			return comparedByTieBreaker;
 		}
@@ -718,6 +730,26 @@ export function compareItemsByFuzzyScore<T>(itemA: T, itemB: T, query: IPrepared
 
 	// 7.) scores are identical: start to use the fallback compare
 	return fallbackCompare(itemA, itemB, query, accessor);
+}
+
+function boostScore(score: number, boost: number): number {
+	if (score === NO_MATCH || score === PATH_IDENTITY_SCORE || !(boost > 0)) {
+		return score; // never boost non-matches or identity matches
+	}
+
+	// Keep the boosted score below the threshold of the next higher band
+	let ceiling: number;
+	if (score <= LABEL_SCORE_THRESHOLD) {
+		ceiling = LABEL_SCORE_THRESHOLD; // label matches require a score above the threshold
+	} else if (score < LABEL_PREFIX_SCORE_THRESHOLD) {
+		ceiling = LABEL_PREFIX_SCORE_THRESHOLD - 1;
+	} else if (score < PATH_IDENTITY_SCORE) {
+		ceiling = PATH_IDENTITY_SCORE - 1;
+	} else {
+		ceiling = Number.POSITIVE_INFINITY; // only reachable by summing scores of multiple query pieces
+	}
+
+	return Math.min(score + boost, ceiling);
 }
 
 function computeLabelAndDescriptionMatchDistance<T>(item: T, score: IItemScore, accessor: IItemAccessor<T>): number {

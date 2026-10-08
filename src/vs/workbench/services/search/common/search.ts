@@ -129,6 +129,13 @@ export interface IFileQueryProps<U extends UriComponents> extends ICommonQueryPr
 	 * results are limited by `maxResults`.
 	 */
 	proximityFolder?: U;
+
+	/**
+	 * When sorting by score with a `proximityFolder`, the extra score points a result
+	 * receives for being inside that folder, halving with every folder step away from it.
+	 * See {@link ICompareItemsByFuzzyScoreOptions.scoreBoost} for its limits.
+	 */
+	proximityBoost?: number;
 	cacheKey?: string;
 }
 

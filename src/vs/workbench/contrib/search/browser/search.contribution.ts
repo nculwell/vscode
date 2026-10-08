@@ -135,6 +135,12 @@ configurationRegistry.registerConfiguration({
 			],
 			description: nls.localize('filterSortOrder', "Controls sorting order of editor history in quick open when filtering.")
 		},
+		'search.quickOpen.proximityBoost': {
+			type: 'number',
+			default: 0,
+			minimum: 0,
+			markdownDescription: nls.localize('search.quickOpen.proximityBoost', "Controls how strongly Quick Open favors files close to the active editor. Files in the same folder as the active editor receive this many extra score points, halving with every folder step away. When `0`, closeness only decides between otherwise equally good matches. Even a large boost never lets a file outrank a better kind of match, such as a file whose name starts with the search text.")
+		},
 		'search.globalFindClipboard': {
 			type: 'boolean',
 			default: false,
