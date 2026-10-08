@@ -132,21 +132,15 @@ suite('stripLeadingCurrentDirectory', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('basics', function () {
-		assert.strictEqual(stripLeadingCurrentDirectory(''), '');
-		assert.strictEqual(stripLeadingCurrentDirectory('./'), '');
-		assert.strictEqual(stripLeadingCurrentDirectory('./src/file.ts'), 'src/file.ts');
-		assert.strictEqual(stripLeadingCurrentDirectory('.\\src\\file.ts'), 'src\\file.ts');
-		assert.strictEqual(stripLeadingCurrentDirectory('././src/file.ts'), 'src/file.ts');
-		assert.strictEqual(stripLeadingCurrentDirectory('src/file.ts'), 'src/file.ts');
-		assert.strictEqual(stripLeadingCurrentDirectory('../src/file.ts'), '../src/file.ts');
-		assert.strictEqual(stripLeadingCurrentDirectory('.gitignore'), '.gitignore');
-		assert.strictEqual(stripLeadingCurrentDirectory('/abs/./file.ts'), '/abs/./file.ts');
+		const inputs = ['', './', './src/file.ts', '.\\src\\file.ts', '././src/file.ts', 'src/file.ts', '../src/file.ts', '.gitignore', '/abs/./file.ts'];
+		assert.deepStrictEqual(inputs.map(stripLeadingCurrentDirectory), ['', '', 'src/file.ts', 'src\\file.ts', 'src/file.ts', 'src/file.ts', '../src/file.ts', '.gitignore', '/abs/./file.ts']);
 	});
 
 	test('combined with range', function () {
 		const res = extractRangeFromFilter('./src/file.ts:20:3');
-		assert.strictEqual(stripLeadingCurrentDirectory(res!.filter), 'src/file.ts');
-		assert.strictEqual(res?.range.startLineNumber, 20);
-		assert.strictEqual(res?.range.startColumn, 3);
+		assert.deepStrictEqual({ filter: stripLeadingCurrentDirectory(res!.filter), range: res?.range }, {
+			filter: 'src/file.ts',
+			range: { startLineNumber: 20, startColumn: 3, endLineNumber: 20, endColumn: 3 }
+		});
 	});
 });
