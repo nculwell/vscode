@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { extractRangeFromFilter } from '../../common/search.js';
+import { extractRangeFromFilter, stripLeadingCurrentDirectory } from '../../common/search.js';
 
 suite('extractRangeFromFilter', () => {
 
@@ -124,5 +124,29 @@ suite('extractRangeFromFilter', () => {
 				assert.deepStrictEqual(extractRangeFromFilter(filter, unless), result);
 			});
 		}
+	});
+});
+
+suite('stripLeadingCurrentDirectory', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('basics', function () {
+		assert.strictEqual(stripLeadingCurrentDirectory(''), '');
+		assert.strictEqual(stripLeadingCurrentDirectory('./'), '');
+		assert.strictEqual(stripLeadingCurrentDirectory('./src/file.ts'), 'src/file.ts');
+		assert.strictEqual(stripLeadingCurrentDirectory('.\\src\\file.ts'), 'src\\file.ts');
+		assert.strictEqual(stripLeadingCurrentDirectory('././src/file.ts'), 'src/file.ts');
+		assert.strictEqual(stripLeadingCurrentDirectory('src/file.ts'), 'src/file.ts');
+		assert.strictEqual(stripLeadingCurrentDirectory('../src/file.ts'), '../src/file.ts');
+		assert.strictEqual(stripLeadingCurrentDirectory('.gitignore'), '.gitignore');
+		assert.strictEqual(stripLeadingCurrentDirectory('/abs/./file.ts'), '/abs/./file.ts');
+	});
+
+	test('combined with range', function () {
+		const res = extractRangeFromFilter('./src/file.ts:20:3');
+		assert.strictEqual(stripLeadingCurrentDirectory(res!.filter), 'src/file.ts');
+		assert.strictEqual(res?.range.startLineNumber, 20);
+		assert.strictEqual(res?.range.startColumn, 3);
 	});
 });

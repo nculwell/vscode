@@ -231,6 +231,17 @@ export function extractRangeFromFilter(filter: string, unless?: string[]): IFilt
 	return undefined;
 }
 
+// Matches one or more leading "./" (or ".\") segments, e.g. as printed by compilers
+const LEADING_CURRENT_DIRECTORY_PATTERN = /^(?:\.[\/\\])+/;
+
+/**
+ * Removes any leading "./" or ".\" segments from the filter so that
+ * relative paths such as "./src/file.ts" match as if typed "src/file.ts".
+ */
+export function stripLeadingCurrentDirectory(filter: string): string {
+	return filter.replace(LEADING_CURRENT_DIRECTORY_PATTERN, '');
+}
+
 export enum SearchUIState {
 	Idle,
 	Searching,

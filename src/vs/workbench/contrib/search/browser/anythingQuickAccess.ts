@@ -9,7 +9,7 @@ import { IPickerQuickAccessItem, PickerQuickAccessProvider, TriggerAction, FastA
 import { prepareQuery, IPreparedQuery, compareItemsByFuzzyScore, scoreItemFuzzy, FuzzyScorerCache } from '../../../../base/common/fuzzyScorer.js';
 import { IFileQueryBuilderOptions, QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-import { getOutOfWorkspaceEditorResources, extractRangeFromFilter, IWorkbenchSearchConfiguration } from '../common/search.js';
+import { getOutOfWorkspaceEditorResources, extractRangeFromFilter, stripLeadingCurrentDirectory, IWorkbenchSearchConfiguration } from '../common/search.js';
 import { ISearchService, ISearchComplete } from '../../../services/search/common/search.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { untildify } from '../../../../base/common/labels.js';
@@ -294,6 +294,9 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		} else {
 			filter = originalFilter;
 		}
+
+		// Strip leading "./" so that paths copied from e.g. compiler output match
+		filter = stripLeadingCurrentDirectory(filter);
 
 		// Remember as last range
 		this.pickState.lastRange = filterWithRange?.range;
