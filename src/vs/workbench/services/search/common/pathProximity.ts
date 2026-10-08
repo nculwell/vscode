@@ -40,32 +40,27 @@ function getFolderDepth(folder: URI): number {
 }
 
 /**
- * Creates a comparer that orders resources by how close they are to the folder
- * of `activeResource`, closest first. Resources that are `undefined` or not related
- * to `activeResource` sort last. Distances are cached for the lifetime of the comparer.
+ * Creates a comparer that orders items by how close their resource is to `folder`,
+ * closest first. Items without a resource, or whose resource is not related to
+ * `folder`, sort last. Distances are cached per item for the lifetime of the comparer.
  */
-export function createProximityComparer(extUri: IExtUri, activeResource: URI): (resourceA: URI | undefined, resourceB: URI | undefined) => number {
-	const activeFolder = extUri.dirname(activeResource);
-	const distances = new Map<string, number>();
+export function createProximityComparer<T>(extUri: IExtUri, folder: URI, getResource: (item: T) => URI | undefined): (itemA: T, itemB: T) => number {
+	const distances = new Map<T, number>();
 
-	const getDistance = (resource: URI | undefined): number => {
-		if (!resource) {
-			return Number.POSITIVE_INFINITY;
-		}
-
-		const key = extUri.getComparisonKey(resource);
-		let distance = distances.get(key);
+	const getDistance = (item: T): number => {
+		let distance = distances.get(item);
 		if (distance === undefined) {
-			distance = getFolderDistance(extUri, activeFolder, resource);
-			distances.set(key, distance);
+			const resource = getResource(item);
+			distance = resource ? getFolderDistance(extUri, folder, resource) : Number.POSITIVE_INFINITY;
+			distances.set(item, distance);
 		}
 
 		return distance;
 	};
 
-	return (resourceA, resourceB) => {
-		const distanceA = getDistance(resourceA);
-		const distanceB = getDistance(resourceB);
+	return (itemA, itemB) => {
+		const distanceA = getDistance(itemA);
+		const distanceB = getDistance(itemB);
 		if (distanceA === distanceB) {
 			return 0; // also covers both being infinite, where subtraction would yield NaN
 		}

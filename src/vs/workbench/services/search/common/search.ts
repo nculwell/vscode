@@ -122,6 +122,13 @@ export interface IFileQueryProps<U extends UriComponents> extends ICommonQueryPr
 	 */
 	exists?: boolean;
 	sortByScore?: boolean;
+
+	/**
+	 * When sorting by score, results that are otherwise equally good matches are
+	 * ordered by how close they are to this folder, closest first. Applied before
+	 * results are limited by `maxResults`.
+	 */
+	proximityFolder?: U;
 	cacheKey?: string;
 }
 

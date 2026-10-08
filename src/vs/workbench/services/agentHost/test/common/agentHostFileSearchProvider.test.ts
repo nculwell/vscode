@@ -102,6 +102,21 @@ suite('AgentHostFileSearchProvider', () => {
 		});
 	});
 
+	test('prefers results close to the proximity folder before limiting results', async () => {
+		const { search, query } = await setup({ 'a/index.ts': '', 'b/c/d/index.ts': '', 'b/c/index.ts': '' });
+		const sortedQuery: IFileQuery = { ...query, filePattern: 'index', sortByScore: true, maxResults: 2 };
+		const withoutProximity = await search.fileSearch(sortedQuery);
+		const withProximity = await search.fileSearch({ ...sortedQuery, proximityFolder: joinPath(root, 'b/c/d') });
+
+		assert.deepStrictEqual({
+			withoutProximity: withoutProximity.results.map(match => match.resource.path.slice(root.path.length + 1)),
+			withProximity: withProximity.results.map(match => match.resource.path.slice(root.path.length + 1)),
+		}, {
+			withoutProximity: ['a/index.ts', 'b/c/index.ts'],
+			withProximity: ['b/c/d/index.ts', 'b/c/index.ts'],
+		});
+	});
+
 	test('reuses the Quick Open cache across filename queries and clears it explicitly', async () => {
 		let listings = 0;
 		const provider = disposables.add(new class extends InMemoryFileSystemProvider {

@@ -34,7 +34,7 @@ import { IRange } from '../../../../editor/common/core/range.js';
 import { ThrottledDelayer } from '../../../../base/common/async.js';
 import { top } from '../../../../base/common/arrays.js';
 import { FileQueryCacheState } from '../common/cacheState.js';
-import { createProximityComparer } from '../common/pathProximity.js';
+import { createProximityComparer } from '../../../services/search/common/pathProximity.js';
 import { IHistoryService } from '../../../services/history/common/history.js';
 import { IResourceEditorInput, ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { Schemas } from '../../../../base/common/network.js';
@@ -574,8 +574,7 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 			return undefined;
 		}
 
-		const compareByProximity = createProximityComparer(this.uriIdentityService.extUri, activeResource);
-		return (pickA, pickB) => compareByProximity(pickA.resource, pickB.resource);
+		return createProximityComparer(this.uriIdentityService.extUri, dirname(activeResource), (pick: IAnythingQuickPickItem) => pick.resource);
 	}
 
 	//#endregion
@@ -742,21 +741,23 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 				this.getFileQueryOptions({
 					filePattern,
 					cacheKey: this.pickState.fileQueryCache?.cacheKey,
-					maxResults: AnythingQuickAccessProvider.MAX_RESULTS
+					maxResults: AnythingQuickAccessProvider.MAX_RESULTS,
+					proximityFolder: this.pickState.activeResource ? dirname(this.pickState.activeResource) : undefined
 				})
 			), token).finally(() => {
 				this.logService.trace(`QuickAccess fileSearch ${Date.now() - start}ms`);
 			});
 	}
 
-	private getFileQueryOptions(input: { filePattern?: string; cacheKey?: string; maxResults?: number }): IFileQueryBuilderOptions {
+	private getFileQueryOptions(input: { filePattern?: string; cacheKey?: string; maxResults?: number; proximityFolder?: URI }): IFileQueryBuilderOptions {
 		return {
 			_reason: 'openFileHandler', // used for telemetry - do not change
 			extraFileResources: this.instantiationService.invokeFunction(getOutOfWorkspaceEditorResources),
 			filePattern: input.filePattern || '',
 			cacheKey: input.cacheKey,
 			maxResults: input.maxResults || 0,
-			sortByScore: true
+			sortByScore: true,
+			proximityFolder: input.proximityFolder
 		};
 	}
 

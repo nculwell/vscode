@@ -10,10 +10,11 @@ import { compareItemsByFuzzyScore, FuzzyScorerCache, prepareQuery } from '../../
 import * as glob from '../../../../base/common/glob.js';
 import { Disposable, DisposableMap, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { ResourceSet } from '../../../../base/common/map.js';
-import { basename, joinPath } from '../../../../base/common/resources.js';
+import { basename, ExtUri, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import { FileType, IFileService } from '../../../../platform/files/common/files.js';
+import { FileSystemProviderCapabilities, FileType, IFileService } from '../../../../platform/files/common/files.js';
 import { IgnoreFile } from '../../search/common/ignoreFile.js';
+import { createProximityComparer } from '../../search/common/pathProximity.js';
 import { IFileQuery, IFolderQuery, ISearchComplete, ISearchResultProvider, ITextQuery, isFilePatternMatch, QueryGlobTester } from '../../search/common/search.js';
 
 interface IFileSearchCache extends IDisposable {
@@ -79,11 +80,14 @@ export class AgentHostFileSearchProvider extends Disposable implements ISearchRe
 		if (query.sortByScore && query.filePattern && !query.shouldGlobMatchFilePattern) {
 			const prepared = prepareQuery(query.filePattern);
 			const scorerCache: FuzzyScorerCache = Object.create(null);
+			const tieBreaker = query.proximityFolder
+				? createProximityComparer(new ExtUri(uri => !this.fileService.hasCapability(uri, FileSystemProviderCapabilities.PathCaseSensitive)), query.proximityFolder, (item: { resource: URI }) => item.resource)
+				: undefined;
 			matches.sort((a, b) => compareItemsByFuzzyScore(a, b, prepared, true, {
 				getItemLabel: item => basename(item.resource),
 				getItemDescription: item => item.relativePath,
 				getItemPath: item => item.relativePath,
-			}, scorerCache));
+			}, scorerCache, tieBreaker));
 		}
 		const limit = query.exists ? 0 : query.maxResults || matches.length;
 		return {

@@ -4,13 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { promises } from 'fs';
+import { tmpdir } from 'os';
 import { CancelablePromise, createCancelablePromise } from '../../../../../base/common/async.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { IDisposable } from '../../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../../base/common/network.js';
 import * as path from '../../../../../base/common/path.js';
 import { URI } from '../../../../../base/common/uri.js';
-import { flakySuite } from '../../../../../base/test/node/testUtils.js';
+import { Promises } from '../../../../../base/node/pfs.js';
+import { flakySuite, getRandomTestPath } from '../../../../../base/test/node/testUtils.js';
 import { IFileQuery, IFileSearchStats, IFolderQuery, IProgressMessage, IRawFileMatch, ISearchEngine, ISearchEngineStats, ISearchEngineSuccess, ISerializedFileMatch, ISerializedSearchComplete, ISerializedSearchProgressItem, ISerializedSearchSuccess, isSerializedSearchComplete, isSerializedSearchSuccess, QueryType } from '../../common/search.js';
 import { IProgressCallback, SearchService as RawSearchService } from '../../node/rawSearchService.js';
 
@@ -252,6 +255,72 @@ flakySuite('RawSearchService', () => {
 		}, cb, undefined, 1);
 		assert.notStrictEqual(typeof TestSearchEngine.last.config!.maxResults, 'number');
 		assert.deepStrictEqual(results, [path.normalize('/some/where/bbc'), path.normalize('/some/where/bab')]);
+	});
+
+	test('Sorted results prefer proximity before limiting', async function () {
+		const paths = ['a/index.ts', 'b/c/d/index.ts', 'b/c/index.ts'];
+		const search = async (proximityFolder: URI | undefined) => {
+			const matches: IRawFileMatch[] = paths.map(relativePath => ({
+				base: path.normalize('/some/where'),
+				relativePath: path.normalize(relativePath),
+				searchPath: undefined
+			}));
+			const Engine = TestSearchEngine.bind(null, () => matches.shift()!);
+			const service = new RawSearchService();
+
+			const results: string[] = [];
+			const cb: IProgressCallback = value => {
+				if (Array.isArray(value)) {
+					results.push(...value.map(v => v.path));
+				}
+			};
+
+			await service.doFileSearchWithEngine(Engine, {
+				type: QueryType.File,
+				folderQueries: TEST_FOLDER_QUERIES,
+				filePattern: 'index',
+				sortByScore: true,
+				proximityFolder,
+				maxResults: 2
+			}, cb, undefined, 1);
+
+			return results;
+		};
+
+		assert.deepStrictEqual({
+			withoutProximity: await search(undefined),
+			withProximity: await search(URI.file(path.normalize('/some/where/b/c/d')))
+		}, {
+			// shorter paths win ties, so "b/c/d/index.ts" is cut by maxResults
+			withoutProximity: [path.normalize('/some/where/a/index.ts'), path.normalize('/some/where/b/c/index.ts')],
+			// closest to the proximity folder first, then its parent folder
+			withProximity: [path.normalize('/some/where/b/c/d/index.ts'), path.normalize('/some/where/b/c/index.ts')]
+		});
+	});
+
+	test('Revives the proximity folder of a serialized query', async function () {
+		const testDir = getRandomTestPath(tmpdir(), 'vsctests', 'rawsearchproximity');
+		try {
+			for (const relativePath of ['a/index.ts', 'b/c/index.ts']) {
+				await promises.mkdir(path.join(testDir, path.dirname(relativePath)), { recursive: true });
+				await promises.writeFile(path.join(testDir, relativePath), '');
+			}
+
+			// as received over IPC: URIs are plain objects that need reviving
+			const query = JSON.parse(JSON.stringify({
+				type: QueryType.File,
+				folderQueries: [{ folder: URI.file(testDir) }],
+				filePattern: 'index',
+				sortByScore: true,
+				proximityFolder: URI.file(path.join(testDir, 'b', 'c')),
+				maxResults: 1
+			}));
+
+			const result = await collectResultsFromEvent(new RawSearchService().fileSearch(query));
+			assert.deepStrictEqual(result.files.map(file => path.relative(testDir, file.path)), [path.join('b', 'c', 'index.ts')]);
+		} finally {
+			await Promises.rm(testDir);
+		}
 	});
 
 	test('Sorted result batches', async function () {

@@ -54,7 +54,7 @@ suite('pathProximity', () => {
 	});
 
 	test('createProximityComparer', function () {
-		const compare = createProximityComparer(extUri, URI.file('/repo/src/app/main.ts'));
+		const compare = createProximityComparer(extUri, URI.file('/repo/src/app'), (resource: URI | undefined) => resource);
 		const resources = [
 			undefined,
 			URI.file('/elsewhere/deep/folder/index.ts'),
@@ -72,5 +72,21 @@ suite('pathProximity', () => {
 			'untitled:Untitled-1',
 			undefined, // Array.sort always places undefined last
 		]);
+	});
+
+	test('createProximityComparer - resolves each item once', function () {
+		const resolved: string[] = [];
+		const compare = createProximityComparer(extUri, URI.file('/repo'), (relativePath: string) => {
+			resolved.push(relativePath);
+			return URI.file(`/repo/${relativePath}`);
+		});
+
+		const sorted = ['a/b/c/file.ts', 'a/file.ts', 'file.ts', 'a/b/file.ts'].sort(compare);
+		sorted.sort(compare);
+
+		assert.deepStrictEqual({ sorted, resolved: resolved.sort() }, {
+			sorted: ['file.ts', 'a/file.ts', 'a/b/file.ts', 'a/b/c/file.ts'],
+			resolved: ['a/b/c/file.ts', 'a/b/file.ts', 'a/file.ts', 'file.ts']
+		});
 	});
 });

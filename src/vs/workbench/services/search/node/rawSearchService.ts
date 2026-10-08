@@ -11,10 +11,13 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { compareItemsByFuzzyScore, FuzzyScorerCache, IItemAccessor, prepareQuery } from '../../../../base/common/fuzzyScorer.js';
 import { revive } from '../../../../base/common/marshalling.js';
 import { basename, dirname, join, sep } from '../../../../base/common/path.js';
+import { isLinux } from '../../../../base/common/platform.js';
+import { extUri, extUriIgnorePathCase } from '../../../../base/common/resources.js';
 import { StopWatch } from '../../../../base/common/stopwatch.js';
 import { URI, UriComponents } from '../../../../base/common/uri.js';
 import { ByteSize } from '../../../../platform/files/common/files.js';
-import { DEFAULT_MAX_SEARCH_RESULTS, ICachedSearchStats, IFileQuery, IFileSearchProgressItem, IFileSearchStats, IFolderQuery, IProgressMessage, IRawFileMatch, IRawFileQuery, IRawQuery, IRawSearchService, IRawTextQuery, ISearchEngine, ISearchEngineSuccess, ISerializedFileMatch, ISerializedSearchComplete, ISerializedSearchProgressItem, ISerializedSearchSuccess, isFilePatternMatch, ITextQuery } from '../common/search.js';
+import { DEFAULT_MAX_SEARCH_RESULTS, ICachedSearchStats, IFileQuery, IFileSearchProgressItem, IFileSearchStats, IFolderQuery, IProgressMessage, IRawFileMatch, IRawFileQuery, IRawQuery, IRawSearchService, IRawTextQuery, ISearchEngine, ISearchEngineSuccess, ISerializedFileMatch, ISerializedSearchComplete, ISerializedSearchProgressItem, ISerializedSearchSuccess, isFilePatternMatch, ITextQuery, QueryType } from '../common/search.js';
+import { createProximityComparer } from '../common/pathProximity.js';
 import { Engine as FileSearchEngine } from './fileSearch.js';
 import { TextSearchEngineAdapter } from './textSearchAdapter.js';
 
@@ -259,7 +262,10 @@ export class SearchService implements IRawSearchService {
 		// and as such we want the top items to be included in this result set if the number of items
 		// exceeds config.maxResults.
 		const query = prepareQuery(config.filePattern || '');
-		const compare = (matchA: IRawFileMatch, matchB: IRawFileMatch) => compareItemsByFuzzyScore(matchA, matchB, query, true, FileMatchItemAccessor, scorerCache);
+		const tieBreaker = config.proximityFolder
+			? createProximityComparer(isLinux ? extUri : extUriIgnorePathCase, config.proximityFolder, (match: IRawFileMatch) => match.base ? URI.file(join(match.base, match.relativePath)) : undefined)
+			: undefined;
+		const compare = (matchA: IRawFileMatch, matchB: IRawFileMatch) => compareItemsByFuzzyScore(matchA, matchB, query, true, FileMatchItemAccessor, scorerCache, tieBreaker);
 
 		const maxResults = typeof config.maxResults === 'number' ? config.maxResults : DEFAULT_MAX_SEARCH_RESULTS;
 		return arrays.topAsync(results, compare, maxResults, 10000, token);
@@ -439,7 +445,8 @@ function reviveQuery<U extends IRawQuery>(rawQuery: U): U extends IRawTextQuery 
 		...<any>rawQuery, // TODO
 		...{
 			folderQueries: rawQuery.folderQueries && rawQuery.folderQueries.map(reviveFolderQuery),
-			extraFileResources: rawQuery.extraFileResources && rawQuery.extraFileResources.map(components => URI.revive(components))
+			extraFileResources: rawQuery.extraFileResources && rawQuery.extraFileResources.map(components => URI.revive(components)),
+			...(rawQuery.type === QueryType.File && rawQuery.proximityFolder ? { proximityFolder: URI.revive(rawQuery.proximityFolder) } : undefined)
 		}
 	};
 }
