@@ -735,6 +735,28 @@ suite('Fuzzy Scorer', () => {
 		assert.strictEqual(res[2], resourceC);
 	});
 
+	test('compareFilesByScore - tie breaker is only consulted for equal scores', function () {
+		const resourceA = URI.file('/some/deep/nested/path/foo.ts');
+		const resourceB = URI.file('/some/foo.ts');
+		const resourceC = URI.file('/some/deep/nested/path/foobar.ts');
+
+		// Prefers C, then A, then anything else
+		const preferred = [resourceC, resourceA];
+		const rank = (resource: URI) => { const index = preferred.indexOf(resource); return index === -1 ? preferred.length : index; };
+		const tieBreaker = (r1: URI, r2: URI) => rank(r1) - rank(r2);
+
+		const sort = (useTieBreaker: boolean) => [resourceB, resourceC, resourceA]
+			.sort((r1, r2) => compareItemsByFuzzyScore(r1, r2, prepareQuery('foo'), true, ResourceAccessor, Object.create(null), useTieBreaker ? tieBreaker : undefined))
+			.map(resource => resource.path);
+
+		assert.deepStrictEqual({ withoutTieBreaker: sort(false), withTieBreaker: sort(true) }, {
+			// shorter path wins the tie, the weaker match on "foobar.ts" stays last
+			withoutTieBreaker: [resourceB.path, resourceA.path, resourceC.path],
+			// tie breaker decides between the equal scores, but cannot promote "foobar.ts"
+			withTieBreaker: [resourceA.path, resourceB.path, resourceC.path]
+		});
+	});
+
 	test('compareFilesByScore - prefer shorter paths (bug #17443)', function () {
 		const resourceA = URI.file('config/test/t1.js');
 		const resourceB = URI.file('config/test.js');

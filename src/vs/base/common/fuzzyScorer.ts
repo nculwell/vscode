@@ -645,7 +645,12 @@ function matchOverlaps(matchA: IMatch, matchB: IMatch): boolean {
 
 //#region Comparers
 
-export function compareItemsByFuzzyScore<T>(itemA: T, itemB: T, query: IPreparedQuery, allowNonContiguousMatches: boolean, accessor: IItemAccessor<T>, cache: FuzzyScorerCache): number {
+/**
+ * @param tieBreaker optional comparer that is consulted when two items have identical
+ * scores and equally compact matches, before falling back to comparing by length and
+ * alphabetically.
+ */
+export function compareItemsByFuzzyScore<T>(itemA: T, itemB: T, query: IPreparedQuery, allowNonContiguousMatches: boolean, accessor: IItemAccessor<T>, cache: FuzzyScorerCache, tieBreaker?: (itemA: T, itemB: T) => number): number {
 	const itemScoreA = scoreItemFuzzy(itemA, query, allowNonContiguousMatches, accessor, cache);
 	const itemScoreB = scoreItemFuzzy(itemB, query, allowNonContiguousMatches, accessor, cache);
 
@@ -703,7 +708,15 @@ export function compareItemsByFuzzyScore<T>(itemA: T, itemB: T, query: IPrepared
 		return itemBMatchDistance > itemAMatchDistance ? -1 : 1;
 	}
 
-	// 6.) scores are identical: start to use the fallback compare
+	// 6.) scores are identical: use the tie breaker if provided
+	if (tieBreaker) {
+		const comparedByTieBreaker = tieBreaker(itemA, itemB);
+		if (comparedByTieBreaker !== 0) {
+			return comparedByTieBreaker;
+		}
+	}
+
+	// 7.) scores are identical: start to use the fallback compare
 	return fallbackCompare(itemA, itemB, query, accessor);
 }
 
@@ -793,7 +806,7 @@ function fallbackCompare<T>(itemA: T, itemB: T, query: IPreparedQuery, accessor:
 		return pathA.length - pathB.length;
 	}
 
-	// 7.) finally we have equal scores and equal length, we fallback to comparer
+	// 8.) finally we have equal scores and equal length, we fallback to comparer
 
 	// compare by label
 	if (labelA !== labelB) {

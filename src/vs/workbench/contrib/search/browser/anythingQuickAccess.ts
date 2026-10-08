@@ -27,13 +27,14 @@ import { ILanguageService } from '../../../../editor/common/languages/language.j
 import { localize } from '../../../../nls.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IWorkbenchEditorConfiguration, EditorResourceAccessor, isEditorInput } from '../../../common/editor.js';
+import { IWorkbenchEditorConfiguration, EditorResourceAccessor, isEditorInput, SideBySideEditor } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorService, SIDE_GROUP, ACTIVE_GROUP } from '../../../services/editor/common/editorService.js';
 import { IRange } from '../../../../editor/common/core/range.js';
 import { ThrottledDelayer } from '../../../../base/common/async.js';
 import { top } from '../../../../base/common/arrays.js';
 import { FileQueryCacheState } from '../common/cacheState.js';
+import { createProximityComparer } from '../common/pathProximity.js';
 import { IHistoryService } from '../../../services/history/common/history.js';
 import { IResourceEditorInput, ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { Schemas } from '../../../../base/common/network.js';
@@ -88,6 +89,11 @@ interface IAnythingPickState extends IDisposable {
 	lastGlobalPicks: PicksWithActive<IAnythingQuickPickItem> | undefined;
 
 	isQuickNavigating: boolean | undefined;
+
+	/**
+	 * The resource of the editor that was active when the picker opened.
+	 */
+	activeResource: URI | undefined;
 
 	/**
 	 * Sets the picker for this pick state.
@@ -167,6 +173,8 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 
 			isQuickNavigating: boolean | undefined = undefined;
 
+			activeResource: URI | undefined = undefined;
+
 			constructor(
 				private readonly provider: AnythingQuickAccessProvider,
 				instantiationService: IInstantiationService
@@ -199,6 +207,11 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 				this.lastRange = undefined;
 				this.lastGlobalPicks = undefined;
 				this.editorViewState.reset();
+
+				// Remember the active editor when the picker opens so that results
+				// close to it can be preferred, even if the active editor changes
+				// while the picker is open (e.g. when opening picks in the background)
+				this.activeResource = EditorResourceAccessor.getOriginalUri(this.provider.editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY });
 			}
 		}(this, instantiationService));
 
@@ -465,9 +478,10 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		}
 
 		// Perform sorting (top results by score)
+		const proximityTieBreaker = this.createProximityTieBreaker();
 		const sortedAnythingPicks = top(
 			[...filePicks, ...symbolPicks],
-			(anyPickA, anyPickB) => compareItemsByFuzzyScore(anyPickA, anyPickB, query, true, quickPickItemScorerAccessor, this.pickState.scorerCache),
+			(anyPickA, anyPickB) => compareItemsByFuzzyScore(anyPickA, anyPickB, query, true, quickPickItemScorerAccessor, this.pickState.scorerCache, proximityTieBreaker),
 			AnythingQuickAccessProvider.MAX_RESULTS
 		);
 
@@ -546,7 +560,22 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		}
 
 		// Perform sorting
-		return editorHistoryPicks.sort((editorA, editorB) => compareItemsByFuzzyScore(editorA, editorB, query, false, editorHistoryScorerAccessor, this.pickState.scorerCache));
+		const proximityTieBreaker = this.createProximityTieBreaker();
+		return editorHistoryPicks.sort((editorA, editorB) => compareItemsByFuzzyScore(editorA, editorB, query, false, editorHistoryScorerAccessor, this.pickState.scorerCache, proximityTieBreaker));
+	}
+
+	/**
+	 * Returns a comparer that prefers picks closer to the editor that was active
+	 * when the picker opened, for use when picks are otherwise equally good matches.
+	 */
+	private createProximityTieBreaker(): ((pickA: IAnythingQuickPickItem, pickB: IAnythingQuickPickItem) => number) | undefined {
+		const activeResource = this.pickState.activeResource;
+		if (!activeResource) {
+			return undefined;
+		}
+
+		const compareByProximity = createProximityComparer(this.uriIdentityService.extUri, activeResource);
+		return (pickA, pickB) => compareByProximity(pickA.resource, pickB.resource);
 	}
 
 	//#endregion
