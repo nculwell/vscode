@@ -6,9 +6,9 @@
 import assert from 'assert';
 import { UriIdentityService } from '../../common/uriIdentityService.js';
 import { mock } from '../../../../base/test/common/mock.js';
-import { IFileService, FileSystemProviderCapabilities } from '../../../files/common/files.js';
+import { IFileService, FileSystemProviderCapabilities, IFileSystemProvider, IFileSystemProviderCapabilitiesChangeEvent } from '../../../files/common/files.js';
 import { URI } from '../../../../base/common/uri.js';
-import { Event } from '../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
 suite('URI Identity', function () {
@@ -76,6 +76,33 @@ suite('URI Identity', function () {
 
 		assertCanonical(b, b);
 		assertCanonical(b1, b1); // case sensitive
+	});
+
+	test('asCanonicalUri (casing changes when the provider capabilities change)', function () {
+		const capabilities = new Map([['foo', FileSystemProviderCapabilities.None]]);
+		const onDidChangeCapabilities = new Emitter<IFileSystemProviderCapabilitiesChangeEvent>();
+		const service = new UriIdentityService(new class extends FakeFileService {
+			override onDidChangeFileSystemProviderCapabilities = onDidChangeCapabilities.event;
+		}(capabilities));
+
+		try {
+			const upper = URI.parse('foo://bar/BANG');
+			const lower = URI.parse('foo://bar/bang');
+
+			// case insensitive: the first casing seen becomes canonical
+			assertCanonical(upper, upper, service);
+			assertCanonical(lower, upper, service);
+
+			// once the provider is case sensitive, both casings are distinct
+			capabilities.set('foo', FileSystemProviderCapabilities.PathCaseSensitive);
+			onDidChangeCapabilities.fire({ scheme: 'foo', provider: new class extends mock<IFileSystemProvider>() { }() });
+
+			assertCanonical(lower, lower, service);
+			assertCanonical(upper, upper, service);
+		} finally {
+			service.dispose();
+			onDidChangeCapabilities.dispose();
+		}
 	});
 
 	test('asCanonicalUri (normalization)', function () {
