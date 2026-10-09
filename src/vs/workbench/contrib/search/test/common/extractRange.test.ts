@@ -5,45 +5,63 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { extractRangeFromFilter, stripLeadingCurrentDirectory } from '../../common/search.js';
+import { extractRangeFromFilter, IFilterAndRange, stripLeadingCurrentDirectory } from '../../common/search.js';
 
 suite('extractRangeFromFilter', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('basics', async function () {
-		assert.ok(!extractRangeFromFilter(''));
-		assert.ok(!extractRangeFromFilter('/some/path'));
-		assert.ok(!extractRangeFromFilter('/some/path/file.txt'));
+	suite('basics', function () {
+		const base = '/some/path/file.txt';
+		const at = (line: number, column = 1) => ({ startLineNumber: line, startColumn: column, endLineNumber: line, endColumn: column });
+		const testSpecs: { filter: string; result: IFilterAndRange | undefined }[] = [
+			// no line number
+			{ filter: '', result: undefined },
+			{ filter: '/some/path', result: undefined },
+			{ filter: '/some/path/file.txt', result: undefined },
 
-		for (const lineSep of [':', '#', '(', ':line ']) {
-			for (const colSep of [':', '#', ',']) {
-				const base = '/some/path/file.txt';
+			// line only
+			{ filter: '/some/path/file.txt:20', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt#20', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt(20', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt:line 20', result: { filter: base, range: at(20) } },
 
-				let res = extractRangeFromFilter(`${base}${lineSep}20`);
-				assert.strictEqual(res?.filter, base);
-				assert.strictEqual(res?.range.startLineNumber, 20);
-				assert.strictEqual(res?.range.startColumn, 1);
+			// line with a trailing column separator but no column
+			{ filter: '/some/path/file.txt:20:', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt:20#', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt:20,', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt#20:', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt#20#', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt#20,', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt(20:', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt(20#', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt(20,', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt:line 20:', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt:line 20#', result: { filter: base, range: at(20) } },
+			{ filter: '/some/path/file.txt:line 20,', result: { filter: base, range: at(20) } },
 
-				res = extractRangeFromFilter(`${base}${lineSep}20${colSep}`);
-				assert.strictEqual(res?.filter, base);
-				assert.strictEqual(res?.range.startLineNumber, 20);
-				assert.strictEqual(res?.range.startColumn, 1);
+			// line and column
+			{ filter: '/some/path/file.txt:20:3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt:20#3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt:20,3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt#20:3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt#20#3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt#20,3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt(20:3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt(20#3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt(20,3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt:line 20:3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt:line 20#3', result: { filter: base, range: at(20, 3) } },
+			{ filter: '/some/path/file.txt:line 20,3', result: { filter: base, range: at(20, 3) } },
 
-				res = extractRangeFromFilter(`${base}${lineSep}20${colSep}3`);
-				assert.strictEqual(res?.filter, base);
-				assert.strictEqual(res?.range.startLineNumber, 20);
-				assert.strictEqual(res?.range.startColumn, 3);
-			}
+			// space between path and line
+			{ filter: '/some/path/file.txt (19,20)', result: { filter: base, range: at(19, 20) } },
+		];
+		for (const { filter, result } of testSpecs) {
+			test(JSON.stringify(filter), () => {
+				assert.deepStrictEqual(extractRangeFromFilter(filter), result);
+			});
 		}
-	});
-
-	test('allow space after path', async function () {
-		const res = extractRangeFromFilter('/some/path/file.txt (19,20)');
-
-		assert.strictEqual(res?.filter, '/some/path/file.txt');
-		assert.strictEqual(res?.range.startLineNumber, 19);
-		assert.strictEqual(res?.range.startColumn, 20);
 	});
 
 	suite('ranges', function () {
@@ -131,10 +149,25 @@ suite('stripLeadingCurrentDirectory', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('basics', function () {
-		const inputs = ['', './', './src/file.ts', '.\\src\\file.ts', '././src/file.ts', 'src/file.ts', '../src/file.ts', '.gitignore', '/abs/./file.ts'];
-		assert.deepStrictEqual(inputs.map(stripLeadingCurrentDirectory), ['', '', 'src/file.ts', 'src\\file.ts', 'src/file.ts', 'src/file.ts', '../src/file.ts', '.gitignore', '/abs/./file.ts']);
-	});
+	const testSpecs = [
+		// leading "./" is removed
+		{ input: './src/file.ts', expected: 'src/file.ts' },
+		{ input: '.\\src\\file.ts', expected: 'src\\file.ts' },
+		{ input: '././src/file.ts', expected: 'src/file.ts' },
+		{ input: './', expected: '' },
+
+		// anything else is left alone
+		{ input: '', expected: '' },
+		{ input: 'src/file.ts', expected: 'src/file.ts' },
+		{ input: '../src/file.ts', expected: '../src/file.ts' },
+		{ input: '.gitignore', expected: '.gitignore' },
+		{ input: '/abs/./file.ts', expected: '/abs/./file.ts' },
+	];
+	for (const { input, expected } of testSpecs) {
+		test(`${JSON.stringify(input)} -> ${JSON.stringify(expected)}`, () => {
+			assert.strictEqual(stripLeadingCurrentDirectory(input), expected);
+		});
+	}
 
 	test('combined with range', function () {
 		const res = extractRangeFromFilter('./src/file.ts:20:3');
